@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flame/components.dart';
@@ -44,19 +45,35 @@ class EnemyComponent extends PositionComponent
     : health = stats.maxHealth,
       super(
         position: spawnPosition,
-        size: Vector2.all(32),
+        size: Vector2.all(58),
         anchor: Anchor.center,
         priority: 15,
       );
 
   final EnemyStats stats;
-  final double collisionRadius = 16;
+  final double collisionRadius = 19;
+  final Vector2 _facing = Vector2(0, 1);
   double health;
 
   EnemyTarget _target = EnemyTarget.tower;
   double _targetSwitchRemaining = 0;
   double _attackCooldownRemaining = 0;
+  double _attackPulse = 0;
+  double _animationTime = 0;
   bool _dead = false;
+  late final SpriteComponent _sprite;
+
+  @override
+  Future<void> onLoad() async {
+    await super.onLoad();
+    _sprite = SpriteComponent(
+      sprite: await game.loadSprite('melee_creep.png'),
+      size: size.clone(),
+      position: size / 2,
+      anchor: Anchor.center,
+    );
+    await add(_sprite);
+  }
 
   @override
   void update(double dt) {
@@ -68,6 +85,8 @@ class EnemyComponent extends PositionComponent
     _attackCooldownRemaining = (_attackCooldownRemaining - dt)
         .clamp(0, double.infinity)
         .toDouble();
+    _attackPulse = (_attackPulse - dt).clamp(0, double.infinity).toDouble();
+    _animationTime += dt;
     _targetSwitchRemaining = (_targetSwitchRemaining - dt)
         .clamp(0, double.infinity)
         .toDouble();
@@ -83,6 +102,15 @@ class EnemyComponent extends PositionComponent
         ? GameConfig.playerRadius
         : GameConfig.towerCollisionRadius;
     final Vector2 delta = targetPosition - position;
+    if (delta.length2 > 0.001) {
+      _facing.setFrom(delta.normalized());
+      _sprite.angle = math.atan2(_facing.y, _facing.x) - math.pi / 2;
+    }
+    final double bob = math.sin(_animationTime * 7) * 1.5;
+    final double attackScale = _attackPulse > 0 ? 1.12 : 1;
+    _sprite
+      ..position.setValues(size.x / 2, size.y / 2 + bob)
+      ..scale.setAll(attackScale);
     final double contactDistance = stats.attackRange + targetRadius;
 
     if (delta.length > contactDistance) {
@@ -94,6 +122,7 @@ class EnemyComponent extends PositionComponent
 
     if (_attackCooldownRemaining <= 0) {
       _attackCooldownRemaining = stats.attackCooldown;
+      _attackPulse = 0.14;
       if (_target == EnemyTarget.player) {
         game.player.takeDamage(stats.damage, sourcePosition: position);
       } else {
@@ -135,42 +164,24 @@ class EnemyComponent extends PositionComponent
   @override
   void render(Canvas canvas) {
     final Offset center = Offset(size.x / 2, size.y / 2);
-    canvas.drawCircle(
-      center,
-      collisionRadius,
-      Paint()..color = const Color(0xffd84949),
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: center + const Offset(0, 18),
+        width: 34,
+        height: 12,
+      ),
+      Paint()..color = const Color(0x66000000),
     );
-    canvas.drawCircle(
-      center,
-      collisionRadius,
-      Paint()
-        ..color = const Color(0xff6f1717)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3,
-    );
-
-    final Vector2 targetPosition = _target == EnemyTarget.player
-        ? game.player.position
-        : game.tower.position;
-    final Vector2 facing = targetPosition - position;
-    if (facing.length2 > 0) {
-      facing.normalize();
-      canvas.drawCircle(
-        center + Offset(facing.x, facing.y) * 9,
-        3,
-        Paint()..color = const Color(0xffffffff),
-      );
-    }
 
     final double healthRatio = (health / stats.maxHealth)
         .clamp(0, 1)
         .toDouble();
     canvas.drawRect(
-      const Rect.fromLTWH(1, -8, 30, 5),
+      Rect.fromLTWH(7, -5, size.x - 14, 6),
       Paint()..color = const Color(0xbb111111),
     );
     canvas.drawRect(
-      Rect.fromLTWH(2, -7, 28 * healthRatio, 3),
+      Rect.fromLTWH(8, -4, (size.x - 16) * healthRatio, 4),
       Paint()..color = const Color(0xff7bf17b),
     );
   }

@@ -55,6 +55,20 @@ class TowerComponent extends PositionComponent
 
   @override
   void render(Canvas canvas) {
+    final Offset center = Offset(size.x / 2, size.y / 2);
+    canvas.drawCircle(
+      center,
+      GameConfig.towerInteractionRange,
+      Paint()..color = const Color(0x1239d98a),
+    );
+    canvas.drawCircle(
+      center,
+      GameConfig.towerInteractionRange,
+      Paint()
+        ..color = const Color(0x704ce09b)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3,
+    );
     super.render(canvas);
     final double top = size.y / 2 - (segments.length - 1) * 13 - 32;
     const double barWidth = 104;

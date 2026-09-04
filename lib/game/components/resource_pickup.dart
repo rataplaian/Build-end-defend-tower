@@ -18,7 +18,7 @@ class ResourcePickup extends PositionComponent
        );
 
   final ResourceKind kind;
-  final int value;
+  int value;
 
   @override
   void update(double dt) {
@@ -27,9 +27,12 @@ class ResourcePickup extends PositionComponent
       return;
     }
     if (position.distanceTo(game.player.position) <= 31) {
-      game.runState.addResource(kind, value);
-      game.unregisterResource(this);
-      removeFromParent();
+      final int collected = game.runState.collectResource(kind, value);
+      value -= collected;
+      if (value <= 0) {
+        game.unregisterResource(this);
+        removeFromParent();
+      }
     }
   }
 

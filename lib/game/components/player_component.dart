@@ -42,8 +42,13 @@ class PlayerComponent extends PositionComponent
     shield.update(dt);
 
     final Vector2 input = game.movementInput;
+    if (game.mouseAimInput.length2 > 0.0025) {
+      facing.setFrom(game.mouseAimInput);
+    }
     if (input.length2 > 0.0025) {
-      facing.setFrom(input.normalized());
+      if (game.mouseAimInput.length2 <= 0.0025) {
+        facing.setFrom(input.normalized());
+      }
       final Vector2 candidate = position + input * GameConfig.playerSpeed * dt;
       _moveWithinArenaAndAroundTower(candidate);
     }
@@ -55,8 +60,8 @@ class PlayerComponent extends PositionComponent
   }
 
   void _moveWithinArenaAndAroundTower(Vector2 candidate) {
-    final double min = GameConfig.playerRadius;
-    final double max = GameConfig.arenaSize - GameConfig.playerRadius;
+    final double min = GameConfig.arenaWallThickness + GameConfig.playerRadius;
+    final double max = GameConfig.arenaSize - min;
     candidate.x = candidate.x.clamp(min, max).toDouble();
     candidate.y = candidate.y.clamp(min, max).toDouble();
 
@@ -137,6 +142,17 @@ class PlayerComponent extends PositionComponent
   @override
   void render(Canvas canvas) {
     final Offset center = Offset(size.x / 2, size.y / 2);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: center - Offset(facing.x, facing.y) * 13,
+          width: 22,
+          height: 25,
+        ),
+        const Radius.circular(6),
+      ),
+      Paint()..color = const Color(0xffb77b3d),
+    );
     canvas.drawCircle(
       center,
       GameConfig.playerRadius,
@@ -159,6 +175,27 @@ class PlayerComponent extends PositionComponent
         ..strokeWidth = 4
         ..strokeCap = StrokeCap.round,
     );
+
+    if (game.runState.carriedTotal > 0 && !game.runState.nearTower) {
+      final Vector2 towerDirection = game.tower.position - position;
+      if (towerDirection.length2 > 0) {
+        towerDirection.normalize();
+        canvas.save();
+        canvas.translate(center.dx, center.dy);
+        canvas.rotate(math.atan2(towerDirection.y, towerDirection.x));
+        final Path homeArrow = Path()
+          ..moveTo(43, 0)
+          ..lineTo(31, -8)
+          ..lineTo(34, 0)
+          ..lineTo(31, 8)
+          ..close();
+        canvas.drawPath(
+          homeArrow,
+          Paint()..color = const Color(0xffffd65c),
+        );
+        canvas.restore();
+      }
+    }
 
     if (shield.isActive) {
       canvas.save();

@@ -3,8 +3,12 @@ import 'package:flutter/foundation.dart';
 import '../game_config.dart';
 
 class RunState extends ChangeNotifier {
+  /// Resources stored safely at the tower and available for construction.
   int wood = 0;
   int stone = 0;
+  int carriedWood = 0;
+  int carriedStone = 0;
+  int bagLevel = 1;
   int currentHeight = 1;
   int peakHeight = 1;
   int enemiesKilled = 0;
@@ -23,9 +27,33 @@ class RunState extends ChangeNotifier {
 
   bool get canBuild => hasBuildResources && nearTower && !gameOver;
 
+  int get carriedTotal => carriedWood + carriedStone;
+
+  int get bagCapacity =>
+      GameConfig.initialBagCapacity +
+      (bagLevel - 1) * GameConfig.bagCapacityPerUpgrade;
+
+  int get bagSpace => bagCapacity - carriedTotal;
+
+  bool get bagFull => bagSpace <= 0;
+
+  int get bagUpgradeWoodCost =>
+      GameConfig.bagUpgradeBaseCost +
+      (bagLevel - 1) * GameConfig.bagUpgradeCostIncrease;
+
+  int get bagUpgradeStoneCost => bagUpgradeWoodCost;
+
+  bool get hasBagUpgradeResources =>
+      wood >= bagUpgradeWoodCost && stone >= bagUpgradeStoneCost;
+
+  bool get canUpgradeBag => hasBagUpgradeResources && nearTower && !gameOver;
+
   void reset() {
     wood = 0;
     stone = 0;
+    carriedWood = 0;
+    carriedStone = 0;
+    bagLevel = 1;
     currentHeight = 1;
     peakHeight = 1;
     enemiesKilled = 0;
@@ -47,13 +75,32 @@ class RunState extends ChangeNotifier {
     timeSurvived += dt;
   }
 
-  void addResource(ResourceKind kind, int amount) {
+  /// Adds as much as possible to the carried bag and returns that amount.
+  int collectResource(ResourceKind kind, int amount) {
+    if (amount <= 0 || bagSpace <= 0 || gameOver) {
+      return 0;
+    }
+    final int collected = amount < bagSpace ? amount : bagSpace;
     if (kind == ResourceKind.wood) {
-      wood += amount;
+      carriedWood += collected;
     } else {
-      stone += amount;
+      carriedStone += collected;
     }
     notifyListeners();
+    return collected;
+  }
+
+  /// Moves the complete bag into the tower inventory.
+  bool depositBag() {
+    if (carriedTotal == 0 || gameOver) {
+      return false;
+    }
+    wood += carriedWood;
+    stone += carriedStone;
+    carriedWood = 0;
+    carriedStone = 0;
+    notifyListeners();
+    return true;
   }
 
   bool spendBuildCost() {
@@ -62,6 +109,17 @@ class RunState extends ChangeNotifier {
     }
     wood -= GameConfig.buildWoodCost;
     stone -= GameConfig.buildStoneCost;
+    notifyListeners();
+    return true;
+  }
+
+  bool spendBagUpgradeCost() {
+    if (!hasBagUpgradeResources) {
+      return false;
+    }
+    wood -= bagUpgradeWoodCost;
+    stone -= bagUpgradeStoneCost;
+    bagLevel += 1;
     notifyListeners();
     return true;
   }

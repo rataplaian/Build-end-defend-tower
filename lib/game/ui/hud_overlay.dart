@@ -24,29 +24,12 @@ class HudOverlay extends StatelessWidget {
                 top: 8,
                 child: _TopHud(game: game),
               ),
-              if (state.canBuild)
+              if (state.nearTower && !state.gameOver)
                 Positioned(
                   left: 0,
                   right: 0,
                   bottom: 174,
-                  child: Center(
-                    child: FilledButton.icon(
-                      onPressed: game.buildTower,
-                      icon: const Icon(Icons.construction),
-                      label: const Text(
-                        'BUILD  3 WOOD + 3 STONE',
-                        style: TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xffd89c35),
-                        foregroundColor: const Color(0xff201407),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 13,
-                        ),
-                      ),
-                    ),
-                  ),
+                  child: _TowerActions(game: game),
                 ),
               Positioned(
                 left: 18,
@@ -102,7 +85,7 @@ class _TopHud extends StatelessWidget {
               children: <Widget>[
                 Expanded(
                   child: Text(
-                    'WOOD: ${state.wood}',
+                    'TOWER  WOOD: ${state.wood}',
                     style: const TextStyle(
                       color: Color(0xffffbd79),
                       fontWeight: FontWeight.w800,
@@ -121,6 +104,50 @@ class _TopHud extends StatelessWidget {
                 ),
               ],
             ),
+            const SizedBox(height: 6),
+            Row(
+              children: <Widget>[
+                const Icon(Icons.backpack, size: 16, color: Color(0xffffd27d)),
+                const SizedBox(width: 5),
+                Text(
+                  'BAG ${state.carriedTotal}/${state.bagCapacity}  '
+                  'W:${state.carriedWood}  S:${state.carriedStone}',
+                  style: TextStyle(
+                    color: state.bagFull
+                        ? const Color(0xffff7d66)
+                        : const Color(0xffffe5ae),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(3),
+                    child: LinearProgressIndicator(
+                      value: state.carriedTotal / state.bagCapacity,
+                      minHeight: 6,
+                      backgroundColor: const Color(0xff342f2f),
+                      color: state.bagFull
+                          ? const Color(0xffff6555)
+                          : const Color(0xffffb14a),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (state.bagFull)
+              const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text(
+                  'BAG FULL — RETURN TO THE TOWER',
+                  style: TextStyle(
+                    color: Color(0xffff8d75),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
             const SizedBox(height: 7),
             _HealthLine(
               label: 'PLAYER',
@@ -143,7 +170,81 @@ class _TopHud extends StatelessWidget {
                 Text('PEAK HEIGHT: ${state.peakHeight}'),
               ],
             ),
+            const SizedBox(height: 4),
+            const Text(
+              'WASD MOVE  •  MOUSE AIM  •  LEFT ATTACK  •  RIGHT SHIELD',
+              style: TextStyle(color: Color(0xffaebbc5), fontSize: 9),
+            ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TowerActions extends StatelessWidget {
+  const _TowerActions({required this.game});
+
+  final CentralTowerGame game;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = game.runState;
+    return Center(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: const Color(0xdd13201c),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0x885be4a0)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const Text(
+                'TOWER — RESOURCES DEPOSIT AUTOMATICALLY',
+                style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  FilledButton.icon(
+                    onPressed: state.canBuild ? game.buildTower : null,
+                    icon: const Icon(Icons.construction, size: 18),
+                    label: const Text('BUILD\n3W + 3S'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xffd89c35),
+                      foregroundColor: const Color(0xff201407),
+                      textStyle: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    onPressed: state.canUpgradeBag ? game.upgradeBag : null,
+                    icon: const Icon(Icons.backpack, size: 18),
+                    label: Text(
+                      'BAG +${GameConfig.bagCapacityPerUpgrade}\n'
+                      '${state.bagUpgradeWoodCost}W + '
+                      '${state.bagUpgradeStoneCost}S',
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xff4d9dd8),
+                      foregroundColor: const Color(0xffffffff),
+                      textStyle: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

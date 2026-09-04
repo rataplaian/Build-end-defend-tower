@@ -1,7 +1,16 @@
-# Central Tower
+# Build & Defend Tower
 
 A small mobile game prototype built with Flutter and Flame. It uses only basic
-shapes and contains no backend, networking, accounts, ads, or external services.
+shapes plus one original enemy sprite. It contains no backend, networking,
+accounts, ads, or external services.
+
+## Gameplay loop
+
+Explore beyond the tower's green deposit zone, collect wood and stone in a
+limited bag, then return to deposit everything. Deposited resources can add a
+tower segment or permanently increase bag capacity for the current run. Melee
+creeps continuously enter through the outer walls and attack whichever is
+closer: the player or the tower.
 
 ## Run
 
@@ -11,8 +20,15 @@ shapes and contains no backend, networking, accounts, ads, or external services.
 3. Run `flutter pub get`.
 4. Connect a phone/emulator and run `flutter run`.
 
-The app locks itself to portrait orientation. The left pad moves the player;
-the right-side buttons attack and raise the directional shield.
+The app locks itself to portrait orientation. On mobile, the left pad moves the
+player and the right-side buttons attack and raise the directional shield.
+
+On desktop/web:
+
+- `WASD`: move
+- Mouse: aim
+- Left mouse button: sword attack
+- Right mouse button: hold the directional shield
 
 ## Play online
 

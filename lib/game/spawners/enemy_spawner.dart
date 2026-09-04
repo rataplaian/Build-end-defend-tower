@@ -41,7 +41,8 @@ class EnemySpawner extends Component with HasGameReference<CentralTowerGame> {
   }
 
   Vector2 _randomEdgePosition() {
-    const double inset = 35;
+    const double spawnPadding = 30;
+    final double inset = GameConfig.arenaWallThickness + spawnPadding;
     final double along =
         inset + _random.nextDouble() * (GameConfig.arenaSize - inset * 2);
     switch (_random.nextInt(4)) {

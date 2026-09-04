@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'game/central_tower_game.dart';
+import 'game/ui/desktop_input_overlay.dart';
 import 'game/ui/game_over_overlay.dart';
 import 'game/ui/hud_overlay.dart';
 
@@ -24,15 +25,17 @@ class CentralTowerApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Central Tower',
+      title: 'Build & Defend Tower',
       theme: ThemeData.dark(useMaterial3: true),
       home: GameWidget<CentralTowerGame>(
         game: CentralTowerGame(),
-        initialActiveOverlays: const <String>['hud'],
+        initialActiveOverlays: const <String>['desktopInput', 'hud'],
         overlayBuilderMap:
             <String, Widget Function(BuildContext, CentralTowerGame)>{
               'hud': (BuildContext context, CentralTowerGame game) =>
                   HudOverlay(game: game),
+              'desktopInput': (BuildContext context, CentralTowerGame game) =>
+                  DesktopInputOverlay(game: game),
               'gameOver': (BuildContext context, CentralTowerGame game) =>
                   GameOverOverlay(game: game),
             },
