@@ -1,242 +1,1 @@
-import 'dart:math';
-import 'dart:ui';
-
-import 'package:flame/components.dart';
-import 'package:flame/game.dart';
-import 'package:flutter/services.dart';
-
-import 'components/arena_component.dart';
-import 'components/enemy_component.dart';
-import 'components/player_component.dart';
-import 'components/resource_pickup.dart';
-import 'components/tower_component.dart';
-import 'game_config.dart';
-import 'spawners/enemy_spawner.dart';
-import 'spawners/resource_spawner.dart';
-import 'state/run_state.dart';
-
-class CentralTowerGame extends FlameGame with KeyboardEvents {
-  CentralTowerGame()
-    : super(
-        camera: CameraComponent.withFixedResolution(
-          width: GameConfig.logicalWidth,
-          height: GameConfig.logicalHeight,
-        ),
-      );
-
-  final RunState runState = RunState();
-  final Random _random = Random();
-  final Vector2 _touchMovementInput = Vector2.zero();
-  final Vector2 _keyboardMovementInput = Vector2.zero();
-  final Vector2 mouseAimInput = Vector2.zero();
-  final Set<EnemyComponent> enemies = <EnemyComponent>{};
-  final Set<ResourcePickup> resources = <ResourcePickup>{};
-
-  late PlayerComponent player;
-  late TowerComponent tower;
-  bool _building = false;
-  bool _upgradingBag = false;
-  bool _restarting = false;
-
-  Vector2 get movementInput {
-    final Vector2 combined = _touchMovementInput + _keyboardMovementInput;
-    return combined.length2 > 1 ? combined.normalized() : combined;
-  }
-
-  Vector2 get arenaCenter => Vector2.all(GameConfig.arenaSize / 2);
-
-  @override
-  Color backgroundColor() => const Color(0xff0b2017);
-
-  @override
-  Future<void> onLoad() async {
-    await super.onLoad();
-    await _startRun(resetState: true);
-  }
-
-  Future<void> _startRun({required bool resetState}) async {
-    if (resetState) {
-      runState.reset();
-    }
-    _touchMovementInput.setZero();
-    _keyboardMovementInput.setZero();
-    mouseAimInput.setZero();
-    enemies.clear();
-    resources.clear();
-
-    tower = TowerComponent(worldCenter: arenaCenter);
-    player = PlayerComponent(startPosition: arenaCenter + Vector2(130, 0));
-
-    await world.add(ArenaComponent());
-    await world.add(tower);
-    await world.add(player);
-    await world.add(EnemySpawner());
-    await world.add(ResourceSpawner());
-
-    for (int i = 0; i < GameConfig.initialResourceCount; i += 1) {
-      spawnResource(kind: i.isEven ? ResourceKind.wood : ResourceKind.stone);
-    }
-
-    camera.follow(player, snap: true);
-  }
-
-  @override
-  void update(double dt) {
-    super.update(dt);
-    if (runState.gameOver) {
-      return;
-    }
-    runState.tick(dt);
-    final bool nearTower =
-        player.position.distanceTo(tower.position) <=
-        GameConfig.towerInteractionRange;
-    runState.setNearTower(nearTower);
-    if (nearTower) {
-      runState.depositBag();
-    }
-  }
-
-  void setMovement(Vector2 value) {
-    if (runState.gameOver) {
-      _touchMovementInput.setZero();
-      return;
-    }
-    _touchMovementInput.setFrom(value.length2 > 1 ? value.normalized() : value);
-  }
-
-  @override
-  KeyEventResult onKeyEvent(
-    KeyEvent event,
-    Set<LogicalKeyboardKey> keysPressed,
-  ) {
-    final double horizontal =
-        (keysPressed.contains(LogicalKeyboardKey.keyD) ? 1 : 0) -
-        (keysPressed.contains(LogicalKeyboardKey.keyA) ? 1 : 0);
-    final double vertical =
-        (keysPressed.contains(LogicalKeyboardKey.keyS) ? 1 : 0) -
-        (keysPressed.contains(LogicalKeyboardKey.keyW) ? 1 : 0);
-    _keyboardMovementInput.setValues(horizontal, vertical);
-    if (_keyboardMovementInput.length2 > 1) {
-      _keyboardMovementInput.normalize();
-    }
-    return KeyEventResult.handled;
-  }
-
-  void setMouseAim(Vector2 canvasPosition) {
-    if (!isLoaded || runState.gameOver) {
-      return;
-    }
-    final Vector2 worldPosition = camera.globalToLocal(canvasPosition);
-    mouseAimInput.setFrom(worldPosition - player.position);
-    if (mouseAimInput.length2 > 0.001) {
-      mouseAimInput.normalize();
-    }
-  }
-
-  void clearMouseAim() => mouseAimInput.setZero();
-
-  void attack() => player.attack();
-
-  void raiseShield() => player.raiseShield();
-
-  void lowerShield() => player.lowerShield();
-
-  Future<void> buildTower() async {
-    if (_building || !runState.canBuild) {
-      return;
-    }
-    _building = true;
-    if (runState.spendBuildCost()) {
-      await tower.addSegment();
-    }
-    _building = false;
-  }
-
-  void upgradeBag() {
-    if (_upgradingBag || !runState.canUpgradeBag) {
-      return;
-    }
-    _upgradingBag = true;
-    runState.spendBagUpgradeCost();
-    _upgradingBag = false;
-  }
-
-  void spawnMeleeCreep(Vector2 position) {
-    if (runState.gameOver || enemies.length >= GameConfig.maxEnemies) {
-      return;
-    }
-    final EnemyComponent enemy = EnemyComponent(spawnPosition: position);
-    enemies.add(enemy);
-    world.add(enemy);
-  }
-
-  void unregisterEnemy(EnemyComponent enemy) {
-    enemies.remove(enemy);
-  }
-
-  void spawnResource({required ResourceKind kind}) {
-    if (runState.gameOver || resources.length >= GameConfig.maxResources) {
-      return;
-    }
-
-    Vector2 spawnPosition = arenaCenter;
-    for (int attempt = 0; attempt < 20; attempt += 1) {
-      const double pickupPadding = 45;
-      const double spawnBand = 220;
-      final double inset = GameConfig.arenaWallThickness + pickupPadding;
-      final double angle = _random.nextDouble() * pi * 2;
-      final double distance =
-          GameConfig.resourceMinTowerDistance +
-          _random.nextDouble() * spawnBand;
-      final Vector2 candidate =
-          arenaCenter + Vector2(cos(angle), sin(angle)) * distance;
-      candidate.x = candidate.x
-          .clamp(inset, GameConfig.arenaSize - inset)
-          .toDouble();
-      candidate.y = candidate.y
-          .clamp(inset, GameConfig.arenaSize - inset)
-          .toDouble();
-      spawnPosition = candidate;
-      if (candidate.distanceTo(arenaCenter) >=
-          GameConfig.resourceMinTowerDistance) {
-        break;
-      }
-    }
-
-    final ResourcePickup pickup = ResourcePickup(
-      kind: kind,
-      value: 1 + _random.nextInt(3),
-      position: spawnPosition,
-    );
-    resources.add(pickup);
-    world.add(pickup);
-  }
-
-  void unregisterResource(ResourcePickup pickup) {
-    resources.remove(pickup);
-  }
-
-  void checkForGameOver() {
-    if (runState.gameOver || (player.health > 0 && tower.health > 0)) {
-      return;
-    }
-    _touchMovementInput.setZero();
-    _keyboardMovementInput.setZero();
-    runState.finishRun();
-    overlays.add('gameOver');
-    pauseEngine();
-  }
-
-  Future<void> restartRun() async {
-    if (_restarting) {
-      return;
-    }
-    _restarting = true;
-    overlays.remove('gameOver');
-    resumeEngine();
-    world.removeAll(world.children.toList(growable: false));
-    runState.reset();
-    await _startRun(resetState: false);
-    _restarting = false;
-  }
-}
+YªçŠxiÉêÞ²‰n¶*'zºè¯^ž·šv)àjv¥ÊÈ¬¢›b¢{2ji_ŠWŸ¢¹boø™ïÜz{kj[hÁêàjgj»Ej)^vÚ+zÊ%½êZrF yDH¥§$jŸ–ëmz¹bžÛ?~[­µêòjibž)Ü–ç^jßð¢¹,¥§þÇ+j×!ÿg»Ómžï¿]wö§j\¬ŠÊ)¶*'³&¦•¥µÁ½ÉÐ€‘…ÉÐéµ…Ñ œì)¥µÁ½ÉÐ€‘…ÉÐéÕ¤œì()¥µÁ½ÉÐ€Á…­…”é™±…µ”½½µÁ½¹•¹ÑÌ¹‘…ÉÐœì)¥µÁ½ÉÐ€Á…­…”é™±…µ”½•Ù•¹ÑÌ¹‘…ÉÐœì)¥µÁ½ÉÐ€Á…­…”é™±…µ”½…µ”¹‘…ÉÐœì)¥µÁ½ÉÐ€Á…­…”é™±ÕÑÑ•È½Í•ÉÙ¥•Ì¹‘…ÉÐœì)¥µÁ½ÉÐ€Á…­…”é™±ÕÑÑ•È½Ý¥‘•ÑÌ¹‘…ÉÐœÍ¡½Ü-•åÙ•¹ÑI•ÍÕ±Ðì()¥µÁ½ÉÐ€½µÁ½¹•¹ÑÌ½…É•¹…}½µÁ½¹•¹Ð¹‘…ÉÐœì)¥µÁ½ÉÐ€½µÁ½¹•¹ÑÌ½•¹•µå}½µÁ½¹•¹Ð¹‘…ÉÐœì)¥µÁ½ÉÐ€½µÁ½¹•¹ÑÌ½Á±…å•É}½µÁ½¹•¹Ð¹‘…ÉÐœì)¥µÁ½ÉÐ€½µÁ½¹•¹ÑÌ½É•Í½ÕÉ•}Á¥­ÕÀ¹‘…ÉÐœì)¥µÁ½ÉÐ€½µÁ½¹•¹ÑÌ½Ñ½Ý•É}½µÁ½¹•¹Ð¹‘…ÉÐœì)¥µÁ½ÉÐ€…µ•}½¹™¥œ¹‘…ÉÐœì)¥µÁ½ÉÐ€ÍÁ…Ý¹•ÉÌ½•¹•µå}ÍÁ…Ý¹•È¹‘…ÉÐœì)¥µÁ½ÉÐ€ÍÁ…Ý¹•ÉÌ½É•Í½ÕÉ•}ÍÁ…Ý¹•È¹‘…ÉÐœì)¥µÁ½ÉÐ€ÍÑ…Ñ”½ÉÕ¹}ÍÑ…Ñ”¹‘…ÉÐœì()±…ÍÌ•¹ÑÉ…±Q½Ý•É…µ”•áÑ•¹‘Ì±…µ•…µ”Ý¥Ñ -•å‰½…É‘Ù•¹ÑÌì(€•¹ÑÉ…±Q½Ý•É…µ” ¤(€€€€èÍÕÁ•È (€€€€€€€…µ•É„è…µ•É…½µÁ½¹•¹Ð¹Ý¥Ñ¡¥á•‘I•Í½±ÕÑ¥½¸ (€€€€€€€€€Ý¥‘Ñ è…µ•½¹™¥œ¹±½¥…±]¥‘Ñ °(€€€€€€€€€¡•¥¡Ðè…µ•½¹™¥œ¹±½¥…±!•¥¡Ð°(€€€€€€€€¤°(€€€€€€¤ì((€™¥¹…°IÕ¹MÑ…Ñ”ÉÕ¹MÑ…Ñ”€ôIÕ¹MÑ…Ñ” ¤ì(€™¥¹…°I…¹‘½´}É…¹‘½´€ôI…¹‘½´ ¤ì(€™¥¹…°Y•Ñ½ÈÈ}Ñ½Õ¡5½Ù•µ•¹Ñ%¹ÁÕÐ€ôY•Ñ½ÈÈ¹é•É¼ ¤ì(€™¥¹…°Y•Ñ½ÈÈ}­•å‰½…É‘5½Ù•µ•¹Ñ%¹ÁÕÐ€ôY•Ñ½ÈÈ¹é•É¼ ¤ì(€™¥¹…°Y•Ñ½ÈÈµ½ÕÍ•¥µ%¹ÁÕÐ€ôY•Ñ½ÈÈ¹é•É¼ ¤ì(€™¥¹…°M•Ðñ¹•µå½µÁ½¹•¹Ðø•¹•µ¥•Ì€ô€ñ¹•µå½µÁ½¹•¹Ðùíôì(€™¥¹…°M•ÐñI•Í½ÕÉ•A¥­ÕÀøÉ•Í½ÕÉ•Ì€ô€ñI•Í½ÕÉ•A¥­ÕÀùíôì((€±…Ñ”A±…å•É½µÁ½¹•¹ÐÁ±…å•Èì(€±…Ñ”Q½Ý•É½µÁ½¹•¹ÐÑ½Ý•Èì(€‰½½°}‰Õ¥±‘¥¹œ€ô™…±Í”ì(€‰½½°}ÕÁÉ…‘¥¹	…œ€ô™…±Í”ì(€‰½½°}É•ÍÑ…ÉÑ¥¹œ€ô™…±Í”ì((€Y•Ñ½ÈÈ•Ðµ½Ù•µ•¹Ñ%¹ÁÕÐì(€€€™¥¹…°Y•Ñ½ÈÈ½µ‰¥¹•€ô}Ñ½Õ¡5½Ù•µ•¹Ñ%¹ÁÕÐ€¬}­•å‰½…É‘5½Ù•µ•¹Ñ%¹ÁÕÐì(€€€É•ÑÕÉ¸½µ‰¥¹•¹±•¹Ñ È€ø€Ä€ü½µ‰¥¹•¹¹½Éµ…±¥é• ¤€è½µ‰¥¹•ì(€ô((€Y•Ñ½ÈÈ•Ð…É•¹…•¹Ñ•È€ôøY•Ñ½ÈÈ¹…±°¡…µ•½¹™¥œ¹…É•¹…M¥é”€¼€È¤ì((€½Ù•ÉÉ¥‘”(€½±½È‰…­É½Õ¹‘½±½È ¤€ôø½¹ÍÐ½±½È Áá™˜ÁˆÈÀÄÜ¤ì((€½Ù•ÉÉ¥‘”(€ÕÑÕÉ”ñÙ½¥ø½¹1½… ¤…Íå¹Œì(€€€…Ý…¥ÐÍÕÁ•È¹½¹1½… ¤ì(€€€…Ý…¥Ð}ÍÑ…ÉÑIÕ¸¡É•Í•ÑMÑ…Ñ”èÑÉÕ”¤ì(€ô((€ÕÑÕÉ”ñÙ½¥ø}ÍÑ…ÉÑIÕ¸¡íÉ•ÅÕ¥É•‰½½°É•Í•ÑMÑ…Ñ•ô¤…Íå¹Œì(€€€¥˜€¡É•Í•ÑMÑ…Ñ”¤ì(€€€€€ÉÕ¹MÑ…Ñ”¹É•Í•Ð ¤ì(€€€ô(€€€}Ñ½Õ¡5½Ù•µ•¹Ñ%¹ÁÕÐ¹Í•Ñi•É¼ ¤ì(€€€}­•å‰½…É‘5½Ù•µ•¹Ñ%¹ÁÕÐ¹Í•Ñi•É¼ ¤ì(€€€µ½ÕÍ•¥µ%¹ÁÕÐ¹Í•Ñi•É¼ ¤ì(€€€•¹•µ¥•Ì¹±•…È ¤ì(€€€É•Í½ÕÉ•Ì¹±•…È ¤ì((€€€Ñ½Ý•È€ôQ½Ý•É½µÁ½¹•¹Ð¡Ý½É±‘•¹Ñ•Èè…É•¹…•¹Ñ•È¤ì(€€€Á±…å•È€ôA±…å•É½µÁ½¹•¹Ð¡ÍÑ…ÉÑA½Í¥Ñ¥½¸è…É•¹…•¹Ñ•È€¬Y•Ñ½ÈÈ ÄÌÀ°€À¤¤ì((€€€…Ý…¥ÐÝ½É±¹…‘¡É•¹…½µÁ½¹•¹Ð ¤¤ì(€€€…Ý…¥ÐÝ½É±¹…‘¡Ñ½Ý•È¤ì(€€€…Ý…¥ÐÝ½É±¹…‘¡Á±…å•È¤ì(€€€…Ý…¥ÐÝ½É±¹…‘¡¹•µåMÁ…Ý¹•È ¤¤ì(€€€…Ý…¥ÐÝ½É±¹…‘¡I•Í½ÕÉ•MÁ…Ý¹•È ¤¤ì((€€€™½È€¡¥¹Ð¤€ô€Àì¤€ð…µ•½¹™¥œ¹¥¹¥Ñ¥…±I•Í½ÕÉ•½Õ¹Ðì¤€¬ô€Ä¤ì(€€€€€ÍÁ…Ý¹I•Í½ÕÉ”¡­¥¹è¤¹¥ÍÙ•¸€üI•Í½ÕÉ•-¥¹¹Ý½½€èI•Í½ÕÉ•-¥¹¹ÍÑ½¹”¤ì(€€€ô((€€€…µ•É„¹™½±±½Ü¡Á±…å•È°Í¹…ÀèÑÉÕ”¤ì(€ô((€½Ù•ÉÉ¥‘”(€Ù½¥ÕÁ‘…Ñ”¡‘½Õ‰±”‘Ð¤ì(€€€ÍÕÁ•È¹ÕÁ‘…Ñ”¡‘Ð¤ì(€€€¥˜€¡ÉÕ¹MÑ…Ñ”¹…µ•=Ù•È¤ì(€€€€€É•ÑÕÉ¸ì(€€€ô(€€€ÉÕ¹MÑ…Ñ”¹Ñ¥¬¡‘Ð¤ì(€€€™¥¹…°‰½½°¹•…ÉQ½Ý•È€ô(€€€€€€€Á±…å•È¹Á½Í¥Ñ¥½¸¹‘¥ÍÑ…¹•Q¼¡Ñ½Ý•È¹Á½Í¥Ñ¥½¸¤€ðô(€€€€€€€…µ•½¹™¥œ¹Ñ½Ý•É%¹Ñ•É…Ñ¥½¹I…¹”ì(€€€ÉÕ¹MÑ…Ñ”¹Í•Ñ9•…ÉQ½Ý•È¡¹•…ÉQ½Ý•È¤ì(€€€¥˜€¡¹•…ÉQ½Ý•È¤ì(€€€€€ÉÕ¹MÑ…Ñ”¹‘•Á½Í¥Ñ	…œ ¤ì(€€€ô(€ô((€Ù½¥Í•Ñ5½Ù•µ•¹Ð¡Y•Ñ½ÈÈÙ…±Õ”¤ì(€€€¥˜€¡ÉÕ¹MÑ…Ñ”¹…µ•=Ù•È¤ì(€€€€€}Ñ½Õ¡5½Ù•µ•¹Ñ%¹ÁÕÐ¹Í•Ñi•É¼ ¤ì(€€€€€É•ÑÕÉ¸ì(€€€ô(€€€}Ñ½Õ¡5½Ù•µ•¹Ñ%¹ÁÕÐ¹Í•ÑÉ½´¡Ù…±Õ”¹±•¹Ñ È€ø€Ä€üÙ…±Õ”¹¹½Éµ…±¥é• ¤€èÙ…±Õ”¤ì(€ô((€½Ù•ÉÉ¥‘”(€-•åÙ•¹ÑI•ÍÕ±Ð½¹-•åÙ•¹Ð (€€€-•åÙ•¹Ð•Ù•¹Ð°(€€€M•Ðñ1½¥…±-•å‰½…É‘-•äø­•åÍAÉ•ÍÍ•°(€€¤ì(€€€™¥¹…°‘½Õ‰±”¡½É¥é½¹Ñ…°€ô(€€€€€€€€¡­•åÍAÉ•ÍÍ•¹½¹Ñ…¥¹Ì¡1½¥…±-•å‰½…É‘-•ä¹­•å¤€ü€Ä€è€À¤€´(€€€€€€€€¡­•åÍAÉ•ÍÍ•¹½¹Ñ…¥¹Ì¡1½¥…±-•å‰½…É‘-•ä¹­•å¤€ü€Ä€è€À¤ì(€€€™¥¹…°‘½Õ‰±”Ù•ÉÑ¥…°€ô(€€€€€€€€¡­•åÍAÉ•ÍÍ•¹½¹Ñ…¥¹Ì¡1½¥…±-•å‰½…É‘-•ä¹­•åL¤€ü€Ä€è€À¤€´(€€€€€€€€¡­•åÍAÉ•ÍÍ•¹½¹Ñ…¥¹Ì¡1½¥…±-•å‰½…É‘-•ä¹­•å\¤€ü€Ä€è€À¤ì(€€€}­•å‰½…É‘5½Ù•µ•¹Ñ%¹ÁÕÐ¹Í•ÑY…±Õ•Ì¡¡½É¥é½¹Ñ…°°Ù•ÉÑ¥…°¤ì(€€€¥˜€¡}­•å‰½…É‘5½Ù•µ•¹Ñ%¹ÁÕÐ¹±•¹Ñ È€ø€Ä¤ì(€€€€€}­•å‰½…É‘5½Ù•µ•¹Ñ%¹ÁÕÐ¹¹½Éµ…±¥é” ¤ì(€€€ô(€€€É•ÑÕÉ¸-•åÙ•¹ÑI•ÍÕ±Ð¹¡…¹‘±•ì(€ô((€Ù½¥Í•Ñ5½ÕÍ•¥´¡Y•Ñ½ÈÈ…¹Ù…ÍA½Í¥Ñ¥½¸¤ì(€€€¥˜€ …¥Í1½…‘•ñðÉÕ¹MÑ…Ñ”¹…µ•=Ù•È¤ì(€€€€€É•ÑÕÉ¸ì(€€€ô(€€€™¥¹…°Y•Ñ½ÈÈÝ½É±‘A½Í¥Ñ¥½¸€ô…µ•É„¹±½‰…±Q½1½…°¡…¹Ù…ÍA½Í¥Ñ¥½¸¤ì(€€€µ½ÕÍ•¥µ%¹ÁÕÐ¹Í•ÑÉ½´¡Ý½É±‘A½Í¥Ñ¥½¸€´Á±…å•È¹Á½Í¥Ñ¥½¸¤ì(€€€¥˜€¡µ½ÕÍ•¥µ%¹ÁÕÐ¹±•¹Ñ È€ø€À¸ÀÀÄ¤ì(€€€€€µ½ÕÍ•¥µ%¹ÁÕÐ¹¹½Éµ…±¥é” ¤ì(€€€ô(€ô((€Ù½¥±•…É5½ÕÍ•¥´ ¤€ôøµ½ÕÍ•¥µ%¹ÁÕÐ¹Í•Ñi•É¼ ¤ì((€Ù½¥…ÑÑ…¬ ¤€ôøÁ±…å•È¹…ÑÑ…¬ ¤ì((€Ù½¥É…¥Í•M¡¥•± ¤€ôøÁ±…å•È¹É…¥Í•M¡¥•± ¤ì((€Ù½¥±½Ý•ÉM¡¥•± ¤€ôøÁ±…å•È¹±½Ý•ÉM¡¥•± ¤ì((€ÕÑÕÉ”ñÙ½¥ø‰Õ¥±‘Q½Ý•È ¤…Íå¹Œì(€€€¥˜€¡}‰Õ¥±‘¥¹œñð€…ÉÕ¹MÑ…Ñ”¹…¹	Õ¥±¤ì(€€€€€É•ÑÕÉ¸ì(€€€ô(€€€}‰Õ¥±‘¥¹œ€ôÑÉÕ”ì(€€€¥˜€¡ÉÕ¹MÑ…Ñ”¹ÍÁ•¹‘	Õ¥±‘½ÍÐ ¤¤ì(€€€€€…Ý…¥ÐÑ½Ý•È¹…‘‘M•µ•¹Ð ¤ì(€€€ô(€€€}‰Õ¥±‘¥¹œ€ô™…±Í”ì(€ô((€Ù½¥ÕÁÉ…‘•	…œ ¤ì(€€€¥˜€¡}ÕÁÉ…‘¥¹	…œñð€…ÉÕ¹MÑ…Ñ”¹…¹UÁÉ…‘•	…œ¤ì(€€€€€É•ÑÕÉ¸ì(€€€ô(€€€}ÕÁÉ…‘¥¹	…œ€ôÑÉÕ”ì(€€€ÉÕ¹MÑ…Ñ”¹ÍÁ•¹‘	…UÁÉ…‘•½ÍÐ ¤ì(€€€}ÕÁÉ…‘¥¹	…œ€ô™…±Í”ì(€ô((€Ù½¥ÍÁ…Ý¹5•±••É••À¡Y•Ñ½ÈÈÁ½Í¥Ñ¥½¸¤ì(€€€¥˜€¡ÉÕ¹MÑ…Ñ”¹…µ•=Ù•Èñð•¹•µ¥•Ì¹±•¹Ñ €øô…µ•½¹™¥œ¹µ…á¹•µ¥•Ì¤ì(€€€€€É•ÑÕÉ¸ì(€€€ô(€€€™¥¹…°¹•µå½µÁ½¹•¹Ð•¹•µä€ô¹•µå½µÁ½¹•¹Ð¡ÍÁ…Ý¹A½Í¥Ñ¥½¸èÁ½Í¥Ñ¥½¸¤ì(€€€•¹•µ¥•Ì¹…‘¡•¹•µä¤ì(€€€Ý½É±¹…‘¡•¹•µä¤ì(€ô((€Ù½¥Õ¹É•¥ÍÑ•É¹•µä¡¹•µå½µÁ½¹•¹Ð•¹•µä¤ì(€€€•¹•µ¥•Ì¹É•µ½Ù”¡•¹•µä¤ì(€ô((€Ù½¥ÍÁ…Ý¹I•Í½ÕÉ”¡íÉ•ÅÕ¥É•I•Í½ÕÉ•-¥¹­¥¹‘ô¤ì(€€€¥˜€¡ÉÕ¹MÑ…Ñ”¹…µ•=Ù•ÈñðÉ•Í½ÕÉ•Ì¹±•¹Ñ €øô…µ•½¹™¥œ¹µ…áI•Í½ÕÉ•Ì¤ì(€€€€€É•ÑÕÉ¸ì(€€€ô((€€€Y•Ñ½ÈÈÍÁ…Ý¹A½Í¥Ñ¥½¸€ô…É•¹…•¹Ñ•Èì(€€€™½È€¡¥¹Ð…ÑÑ•µÁÐ€ô€Àì…ÑÑ•µÁÐ€ð€ÈÀì…ÑÑ•µÁÐ€¬ô€Ä¤ì(€€€€€½¹ÍÐ‘½Õ‰±”Á¥­ÕÁA…‘‘¥¹œ€ô€ÐÔì(€€€€€½¹ÍÐ‘½Õ‰±”ÍÁ…Ý¹	…¹€ô€ÈÈÀì(€€€€€™¥¹…°‘½Õ‰±”¥¹Í•Ð€ô…µ•½¹™¥œ¹…É•¹…]…±±Q¡¥­¹•ÍÌ€¬Á¥­ÕÁA…‘‘¥¹œì(€€€€€™¥¹…°‘½Õ‰±”…¹±”€ô}É…¹‘½´¹¹•áÑ½Õ‰±” ¤€¨Á¤€¨€Èì(€€€€€™¥¹…°‘½Õ‰±”‘¥ÍÑ…¹”€ô(€€€€€€€€€…µ•½¹™¥œ¹É•Í½ÕÉ•5¥¹Q½Ý•É¥ÍÑ…¹”€¬(€€€€€€€€€}É…¹‘½´¹¹•áÑ½Õ‰±” ¤€¨ÍÁ…Ý¹	…¹ì(€€€€€™¥¹…°Y•Ñ½ÈÈ…¹‘¥‘…Ñ”€ô(€€€€€€€€€…É•¹…•¹Ñ•È€¬Y•Ñ½ÈÈ¡½Ì¡…¹±”¤°Í¥¸¡…¹±”¤¤€¨‘¥ÍÑ…¹”ì(€€€€€…¹‘¥‘…Ñ”¹à€ô…¹‘¥‘…Ñ”¹à(€€€€€€€€€€¹±…µÀ¡¥¹Í•Ð°…µ•½¹™¥œ¹…É•¹…M¥é”€´¥¹Í•Ð¤(€€€€€€€€€€¹Ñ½½Õ‰±” ¤ì(€€€€€…¹‘¥‘…Ñ”¹ä€ô…¹‘¥‘…Ñ”¹ä(€€€€€€€€€€¹±…µÀ¡¥¹Í•Ð°…µ•½¹™¥œ¹…É•¹…M¥é”€´¥¹Í•Ð¤(€€€€€€€€€€¹Ñ½½Õ‰±” ¤ì(€€€€€ÍÁ…Ý¹A½Í¥Ñ¥½¸€ô…¹‘¥‘…Ñ”ì(€€€€€¥˜€¡…¹‘¥‘…Ñ”¹‘¥ÍÑ…¹•Q¼¡…É•¹…•¹Ñ•È¤€øô(€€€€€€€€€…µ•½¹™¥œ¹É•Í½ÕÉ•5¥¹Q½Ý•É¥ÍÑ…¹”¤ì(€€€€€€€‰É•…¬ì(€€€€€ô(€€€ô((€€€™¥¹…°I•Í½ÕÉ•A¥­ÕÀÁ¥­ÕÀ€ôI•Í½ÕÉ•A¥­ÕÀ (€€€€€­¥¹è­¥¹°(€€€€€Ù…±Õ”è€Ä€¬}É…¹‘½´¹¹•áÑ%¹Ð Ì¤°(€€€€€Á½Í¥Ñ¥½¸èÍÁ…Ý¹A½Í¥Ñ¥½¸°(€€€€¤ì(€€€É•Í½ÕÉ•Ì¹…‘¡Á¥­ÕÀ¤ì(€€€Ý½É±¹…‘¡Á¥­ÕÀ¤ì(€ô((€Ù½¥Õ¹É•¥ÍÑ•ÉI•Í½ÕÉ”¡I•Í½ÕÉ•A¥­ÕÀÁ¥­ÕÀ¤ì(€€€É•Í½ÕÉ•Ì¹É•µ½Ù”¡Á¥­ÕÀ¤ì(€ô((€Ù½¥¡•­½É…µ•=Ù•È ¤ì(€€€¥˜€¡ÉÕ¹MÑ…Ñ”¹…µ•=Ù•Èñð€¡Á±…å•È¹¡•…±Ñ €ø€À€˜˜Ñ½Ý•È¹¡•…±Ñ €ø€À¤¤ì(€€€€€É•ÑÕÉ¸ì(€€€ô(€€€}Ñ½Õ¡5½Ù•µ•¹Ñ%¹ÁÕÐ¹Í•Ñi•É¼ ¤ì(€€€}­•å‰½…É‘5½Ù•µ•¹Ñ%¹ÁÕÐ¹Í•Ñi•É¼ ¤ì(€€€ÉÕ¹MÑ…Ñ”¹™¥¹¥Í¡IÕ¸ ¤ì(€€€½Ù•É±…åÌ¹…‘ …µ•=Ù•Èœ¤ì(€€€Á…ÕÍ•¹¥¹” ¤ì(€ô((€ÕÑÕÉ”ñÙ½¥øÉ•ÍÑ…ÉÑIÕ¸ ¤…Íå¹Œì(€€€¥˜€¡}É•ÍÑ…ÉÑ¥¹œ¤ì(€€€€€É•ÑÕÉ¸ì(€€€ô(€€€}É•ÍÑ…ÉÑ¥¹œ€ôÑÉÕ”ì(€€€½Ù•É±…åÌ¹É•µ½Ù” …µ•=Ù•Èœ¤ì(€€€É•ÍÕµ•¹¥¹” ¤ì(€€€Ý½É±¹É•µ½Ù•±°¡Ý½É±¹¡¥±‘É•¸¹Ñ½1¥ÍÐ¡É½Ý…‰±”è™…±Í”¤¤ì(€€€ÉÕ¹MÑ…Ñ”¹É•Í•Ð ¤ì(€€€…Ý…¥Ð}ÍÑ…ÉÑIÕ¸¡É•Í•ÑMÑ…Ñ”è™…±Í”¤ì(€€€}É•ÍÑ…ÉÑ¥¹œ€ô™…±Í”ì(€ô)ô(
