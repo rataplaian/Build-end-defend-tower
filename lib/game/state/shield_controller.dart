@@ -28,9 +28,10 @@ class ShieldController {
 
   void update(double dt) {
     if (cooldownRemaining > 0) {
-      cooldownRemaining = (cooldownRemaining - dt)
-          .clamp(0, cooldownDuration)
-          .toDouble();
+      final double remaining = cooldownRemaining - dt;
+      cooldownRemaining = remaining <= 0.000001
+          ? 0
+          : remaining.clamp(0, cooldownDuration).toDouble();
     }
     if (!isActive) {
       return;

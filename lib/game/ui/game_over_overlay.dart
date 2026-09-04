@@ -17,7 +17,7 @@ class GameOverOverlay extends StatelessWidget {
     return ColoredBox(
       color: const Color(0xdd080b0d),
       child: Center(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(28),
           child: DecoratedBox(
             decoration: BoxDecoration(
