@@ -12,51 +12,58 @@ class HudOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: AnimatedBuilder(
-        animation: game.runState,
-        builder: (BuildContext context, Widget? child) {
-          final state = game.runState;
-          return Stack(
-            children: <Widget>[
-              Positioned(
-                left: 12,
-                right: 12,
-                top: 8,
-                child: _TopHud(game: game),
-              ),
-              if (state.nearTower && !state.gameOver)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 174,
-                  child: _TowerActions(game: game),
-                ),
-              Positioned(
-                left: 18,
-                bottom: 18,
-                child: MovementPad(onChanged: game.setMovement),
-              ),
-              Positioned(
-                right: 18,
-                bottom: 24,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: GameConfig.logicalWidth),
+          child: SizedBox.expand(
+            child: AnimatedBuilder(
+              animation: game.runState,
+              builder: (BuildContext context, Widget? child) {
+                final state = game.runState;
+                return Stack(
                   children: <Widget>[
-                    _ShieldButton(game: game),
-                    const SizedBox(width: 12),
-                    _ActionButton(
-                      label: 'ATTACK',
-                      icon: Icons.flash_on,
-                      color: const Color(0xffd84c43),
-                      enabled: !state.shieldActive && !state.gameOver,
-                      onPressed: game.attack,
+                    Positioned(
+                      left: 12,
+                      right: 12,
+                      top: 8,
+                      child: _TopHud(game: game),
+                    ),
+                    if (state.nearTower && !state.gameOver)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 174,
+                        child: _TowerActions(game: game),
+                      ),
+                    Positioned(
+                      left: 18,
+                      bottom: 18,
+                      child: MovementPad(onChanged: game.setMovement),
+                    ),
+                    Positioned(
+                      right: 18,
+                      bottom: 24,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: <Widget>[
+                          _ShieldButton(game: game),
+                          const SizedBox(width: 12),
+                          _ActionButton(
+                            label: 'ATTACK',
+                            icon: Icons.flash_on,
+                            color: const Color(0xffd84c43),
+                            enabled: !state.shieldActive && !state.gameOver,
+                            onPressed: game.attack,
+                          ),
+                        ],
+                      ),
                     ),
                   ],
-                ),
-              ),
-            ],
-          );
-        },
+                );
+              },
+            ),
+          ),
+        ),
       ),
     );
   }
